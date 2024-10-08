@@ -22,8 +22,8 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Drivers and plugins
-    containerImage: quay.io/amalvank/instaslicev2-controller:latest
-    createdAt: "2024-09-03T18:44:37Z"
+    containerImage: <IMG>
+    createdAt: "2024-10-08T20:07:36Z"
     description: InstaSlice works with GPU operator to create mig slices on demand
     operators.operatorframework.io/builder: operator-sdk-v1.34.1
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
@@ -58,7 +58,7 @@ spec:
     ### Documentation
     Documentation and installation guide can be found below:
       * [Installation Guide](https://github.com/openshift/instaslice-operator)
-      * [Kepler Operator](https://github.com/openshift/instaslice-operator/blob/main/README.md)
+      * [Instaslice Operator](https://github.com/openshift/instaslice-operator/blob/main/README.md)
 
     ### License
     instaslice-operator is licensed under the Apache 2.0 license
@@ -87,8 +87,6 @@ spec:
           resources:
           - nodes
           verbs:
-          - create
-          - delete
           - get
           - list
           - patch
@@ -152,6 +150,18 @@ spec:
           - subjectaccessreviews
           verbs:
           - create
+        - apiGroups:
+          - apps
+          resources:
+          - daemonsets
+          verbs:
+          - create
+          - get
+          - list
+          - update
+          - watch
+          - patch
+          - delete
         serviceAccountName: instaslice-operator-controller-manager
       deployments:
       - label:
@@ -249,37 +259,6 @@ spec:
               - name: cert
                 secret:
                   secretName: webhook-server-cert
-      daemonsets:          # Add the daemonset section
-      - name: instaslice-operator-daemonset
-      spec:
-        selector:
-          matchLabels:
-            app: controller-daemonset
-        template:
-          metadata:
-            labels:
-              app: controller-daemonset
-          spec:
-            containers:
-            - name: daemonset
-              image: quay.io/amalvank/instaslicev2-daemonset:latest
-              ports:
-              - containerPort: 8443
-                name: https
-                protocol: TCP
-              resources:
-                limits:
-                  cpu: 500m
-                  memory: 128Mi
-                requests:
-                  cpu: 5m
-                  memory: 64Mi
-              securityContext:
-                allowPrivilegeEscalation: true
-                privileged: true
-                capabilities:
-                  add:
-                  - "ALL"            
       permissions:
       - rules:
         - apiGroups:
@@ -346,7 +325,7 @@ spec:
     - v1
     containerPort: 443
     deploymentName: instaslice-operator-controller-manager
-    failurePolicy: Ignore
+    failurePolicy: Fail
     generateName: instaslice.codeflare.dev
     rules:
     - apiGroups:
