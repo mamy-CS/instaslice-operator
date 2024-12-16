@@ -264,6 +264,12 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			}
 			log.Info("finalizer deleted for succeeded ", "pod", pod.Name)
 		}
+		// If no allocations exist, update metrics with all slots free
+		err = r.updateMetricsAllSlotsFree(ctx, instasliceList)
+		if err != nil {
+			log.Error(err, "Failed to update instaslice metrics to slots free")
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -298,7 +304,12 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				}
 			}
 		}
-
+		// If no allocations exist, update metrics with all slots free
+		err = r.updateMetricsAllSlotsFree(ctx, instasliceList)
+		if err != nil {
+			log.Error(err, "Failed to update instaslice metrics to slots free")
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, nil
 	}
 	// handle graceful termination of pods, wait for about 30 seconds from the time deletiontimestamp is set on the pod
@@ -397,6 +408,7 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				// Sort by Name in ascending order
 				return instasliceList.Items[i].Name < instasliceList.Items[j].Name
 			})
+
 			for _, instaslice := range instasliceList.Items {
 				// find the GPU on the node and the GPU index where the slice can be created
 				allocRequest, allocResult, err := r.findNodeAndDeviceForASlice(ctx, &instaslice, profileName, policy, pod)
@@ -407,12 +419,25 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				if podHasNodeAllocation {
 					err := utils.UpdateOrDeleteInstasliceAllocations(ctx, r.Client, instaslice.Name, allocResult, allocRequest)
 					if err != nil {
-						return ctrl.Result{Requeue: true}, nil
+						return ctrl.Result{Requeue: true}, err
 					}
 					// allocation was successful
+					// Update total processed GPU slices metrics
+					err = r.IncrementTotalProcessedGpuSliceMetrics(
+						ctx,
+						instaslice,
+						string(allocResult.Nodename),
+						allocResult.GPUUUID,
+						profileName,
+					)
+					if err != nil {
+						log.Error(err, "Failed to update total processed GPU slices metric", "nodeName", allocResult.Nodename, "gpuID", allocResult.GPUUUID)
+						return ctrl.Result{}, err
+					}
 					return ctrl.Result{}, nil
 				}
 			}
+
 		}
 
 		// if the cluster does not have suitable node, requeue request
@@ -425,10 +450,16 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	}
 
+	err = r.updateMetrics(ctx, instasliceList)
+	if err != nil {
+		log.Error(err, "Failed to update instaslice metrics")
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
-// create the DaemonSet object
+// createInstaSliceDaemonSet - create the DaemonSet object
 func (r *InstasliceReconciler) createInstaSliceDaemonSet(namespace string) *appsv1.DaemonSet {
 	emulatorMode := r.Config.EmulatorModeEnable
 	instasliceDaemonsetImage := r.Config.DaemonsetImage
@@ -542,6 +573,7 @@ func (*InstasliceReconciler) extractGpuProfile(instaslice *inferencev1alpha1.Ins
 	return size, discoveredGiprofile, Ciprofileid, Ciengprofileid
 }
 
+// isPodSchedulingGated checks if a pod has a scheduling gate and is actively blocked
 func checkIfPodGatedByInstaSlice(pod *v1.Pod) bool {
 	for _, gate := range pod.Spec.SchedulingGates {
 		if gate.Name == GateName {
@@ -678,8 +710,8 @@ func (l *RightToLeftPolicy) SetAllocationDetails(profileName string, newStart, s
 	return &inferencev1alpha1.AllocationRequest{}
 }
 
-func (r *InstasliceReconciler) removeInstasliceAllocation(ctx context.Context, instasliceName string, allocation *inferencev1alpha1.AllocationResult) error {
-	if allocation.AllocationStatus.AllocationStatusDaemonset == inferencev1alpha1.AllocationStatusDeleted {
+func (r *InstasliceReconciler) removeInstasliceAllocation(ctx context.Context, instasliceName string, allocResult *inferencev1alpha1.AllocationResult) error {
+	if allocResult.AllocationStatus.AllocationStatusDaemonset == inferencev1alpha1.AllocationStatusDeleted {
 		err := utils.UpdateOrDeleteInstasliceAllocations(ctx, r.Client, instasliceName, nil, nil)
 		if err != nil {
 			return err
@@ -687,6 +719,7 @@ func (r *InstasliceReconciler) removeInstasliceAllocation(ctx context.Context, i
 	}
 	return nil
 }
+
 func (r *InstasliceReconciler) setInstasliceAllocationToDeleting(ctx context.Context, instasliceName string, allocResult *inferencev1alpha1.AllocationResult, allocRequest *inferencev1alpha1.AllocationRequest) (ctrl.Result, error) {
 	log := logr.FromContext(ctx)
 	allocResult.AllocationStatus.AllocationStatusController = inferencev1alpha1.AllocationStatusDeleting
