@@ -322,12 +322,14 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 							remainingTime := 30*time.Second - elapsed
 							return ctrl.Result{RequeueAfter: remainingTime}, nil
 						}
+						// update DeployedPodTotal Metrics by setting value to 0 as pod allocation is deleted
+						if err = r.UpdateDeployedPodTotalMetrics(allocation.Nodename, allocation.GPUUUID, allocation.Namespace, allocation.PodName, allocation.Profile, 0); err != nil {
+							log.Error(err, "Failed to update deployed pod metrics", "nodeName", allocation.Nodename)
+						}
 					}
 				}
 			}
 		}
-		// updates UpdateGpuSliceMetrics and UpdateCompatibleProfilesMetrics after allocation deletion
-		r.updateMetrics(ctx, instasliceList)
 		// exit after handling deletion event for a pod.
 		return ctrl.Result{}, nil
 	}
@@ -389,6 +391,9 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				// Sort by Name in ascending order
 				return instasliceList.Items[i].Name < instasliceList.Items[j].Name
 			})
+
+			var successfulAllocation *inferencev1alpha1.AllocationDetails
+			var instasliceListItemSuccess inferencev1alpha1.Instaslice
 			for _, instaslice := range instasliceList.Items {
 				// find the GPU on the node and the GPU index where the slice can be created
 				allocDetails, err := r.findNodeAndDeviceForASlice(ctx, &instaslice, profileName, policy, pod)
@@ -396,14 +401,23 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					continue
 				}
 				podHasNodeAllocation = true
-				if podHasNodeAllocation {
-					err := utils.UpdateOrDeleteInstasliceAllocations(ctx, r.Client, instaslice.Name, allocDetails)
-					if err != nil {
-						return ctrl.Result{Requeue: true}, nil
-					}
-					// allocation was successful
-					return ctrl.Result{}, nil
+				successfulAllocation = allocDetails
+				instasliceListItemSuccess = instaslice
+				// Break immediately after finding a suitable allocation
+				break
+
+			}
+			if podHasNodeAllocation {
+				err := utils.UpdateOrDeleteInstasliceAllocations(ctx, r.Client, instasliceListItemSuccess.Name, successfulAllocation)
+				if err != nil {
+					return ctrl.Result{Requeue: true}, nil
 				}
+				// allocation was successful
+				// Update total processed GPU slices metrics
+				if err := r.IncrementTotalProcessedGpuSliceMetrics(successfulAllocation.Nodename, successfulAllocation.GPUUUID, successfulAllocation.Size); err != nil {
+					log.Error(err, "Failed to update total processed GPU slices metric", "nodeName", successfulAllocation.Nodename, "gpuID", successfulAllocation.GPUUUID)
+				}
+				return ctrl.Result{}, nil
 			}
 		}
 
@@ -420,23 +434,7 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// updates UpdateGpuSliceMetrics and UpdateCompatibleProfilesMetrics
 	r.updateMetrics(ctx, instasliceList)
 
-	// Update total processed GPU slices
-	totalProcessedPerGPU := make(map[string]uint32)
-	for _, instaslice := range instasliceList.Items {
-		for _, allocation := range instaslice.Spec.Allocations {
-			gpuKey := allocation.Nodename + "/" + allocation.GPUUUID
-			totalProcessedPerGPU[gpuKey] += allocation.Size
-		}
-	}
-	for gpuKey, processed := range totalProcessedPerGPU {
-		parts := strings.Split(gpuKey, "/")
-		nodeName, gpuID := parts[0], parts[1]
-		if err := r.IncrementTotalProcessedGpuSliceMetrics(nodeName, gpuID, processed); err != nil {
-			log.Error(err, "Failed to update total processed GPU slices metric", "nodeName", nodeName, "gpuID", gpuID)
-		}
-	}
-
-	// Update pending GPU slice requests
+	// Update current pending GPU slice requests metrics
 	pendingCount, err := r.getPendingGpuRequests(ctx, r.Client)
 	if err != nil {
 		log.Error(err, "Failed to count pending GPU slice requests")
@@ -453,8 +451,24 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 func (r *InstasliceReconciler) updateMetrics(ctx context.Context, instasliceList inferencev1alpha1.InstasliceList) {
 	log := logr.FromContext(ctx)
 	for _, instaslice := range instasliceList.Items {
-		remainingSlotsPerGPU := map[string]uint32{}
+		remainingSlotsPerGPU := map[string]int32{}
 		for gpuID := range instaslice.Spec.MigGPUUUID {
+			nodeName := instaslice.Name
+
+			// If no allocations exist, update metrics with all slots free
+			if instaslice.Spec.Allocations == nil || len(instaslice.Spec.Allocations) == 0 {
+				totalSlots, err := r.getTotalGpuSlotsForGPU(instaslice, gpuID)
+				if err != nil {
+					log.Error(err, "Failed to determine total GPU slots for GPU without allocations", "gpuID", gpuID)
+					continue
+				}
+				if err := r.UpdateGpuSliceMetrics(nodeName, gpuID, 0, totalSlots); err != nil {
+					log.Error(err, "Failed to update GPU slice metrics for unallocated GPU", "nodeName", nodeName, "gpuID", gpuID)
+				}
+				remainingSlotsPerGPU[gpuID] = totalSlots
+				continue
+			}
+
 			// Check if GPU is present in allocations
 			allocated := false
 			for _, allocation := range instaslice.Spec.Allocations {
@@ -505,8 +519,8 @@ func (r *InstasliceReconciler) updateMetrics(ctx context.Context, instasliceList
 }
 
 // Calculates used slots for a specific GPU
-func calculateUsedSlotsForGPU(instaslice inferencev1alpha1.Instaslice, nodeName, gpuID string) uint32 {
-	usedSlots := uint32(0)
+func calculateUsedSlotsForGPU(instaslice inferencev1alpha1.Instaslice, nodeName, gpuID string) int32 {
+	usedSlots := int32(0)
 	for _, allocation := range instaslice.Spec.Allocations {
 		if allocation.Nodename == nodeName && allocation.GPUUUID == gpuID {
 			usedSlots += allocation.Size
@@ -516,7 +530,7 @@ func calculateUsedSlotsForGPU(instaslice inferencev1alpha1.Instaslice, nodeName,
 }
 
 // Retrieves the total GPU slots available for a specific GPU
-func (r *InstasliceReconciler) getTotalGpuSlotsForGPU(instaslice inferencev1alpha1.Instaslice, gpuID string) (uint32, error) {
+func (r *InstasliceReconciler) getTotalGpuSlotsForGPU(instaslice inferencev1alpha1.Instaslice, gpuID string) (int32, error) {
 	const slotsPerGPU = 8
 	if _, exists := instaslice.Spec.MigGPUUUID[gpuID]; !exists {
 		return 0, fmt.Errorf("GPU ID %s not found in Instaslice object", gpuID)

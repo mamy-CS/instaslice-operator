@@ -87,49 +87,22 @@ var (
 	prometheusHandler  http.Handler
 )
 
-// InitializeMetricsExporter registers all Prometheus metrics
-// func (r *InstasliceReconciler) InitializeMetricsExporter() {
-// 	// Initiate the exporting of prometheus metrics for instaslice
-// 	ctrl.Log.Info("Entering InitializeMetricsExporter().")
-// 	if prometheusRegistry == nil {
-// 		ctrl.Log.Info("Prometheus registry is nil, initializing new registry and metrics.")
-// 		prometheusRegistry = prometheus.NewRegistry()
-
-// 		// Register the metrics
-// 		prometheus.MustRegister(instasliceMetrics.GpuSliceTotal, instasliceMetrics.PendingSliceRequests, instasliceMetrics.compatibleProfiles, instasliceMetrics.processedSlices)
-// 		ctrl.Log.Info("Instaslice Metrics registered successfully.")
-
-// 		// Create and register the Prometheus handler
-// 		prometheusHandler = promhttp.HandlerFor(prometheusRegistry, promhttp.HandlerOpts{Registry: prometheusRegistry})
-// 		http.Handle("/metrics", prometheusHandler)
-// 		ctrl.Log.Info("Prometheus handler for /metrics endpoint registered.")
-// 		// go func() {
-// 		// 	err := http.ListenAndServe(":8080", nil)
-
-//			// 	if err != nil {
-//			// 		ctrl.Log.Error(err, "PANIC [InitializeMetricsExporter] ListenAndServe")
-//			// 		panic("PANIC [InitializeMetricsExporter]: ListenAndServe: " + err.Error())
-//			// 	}
-//			// }()
-//		} else {
-//			ctrl.Log.Info("Prometheus registry already initialized, skipping initialization.")
-//		}
-//	}
+// RegisterMetrics registers all Prometheus metrics
 func RegisterMetrics() {
 	// Register custom metrics with the global prometheus registry
 	metrics.Registry.MustRegister(instasliceMetrics.GpuSliceTotal, instasliceMetrics.PendingSliceRequests, instasliceMetrics.compatibleProfiles, instasliceMetrics.processedSlices, instasliceMetrics.deployedPodTotal)
 }
 
 // UpdateGpuSliceMetrics updates GPU slice allocation metrics
-func (r *InstasliceReconciler) IncrementTotalProcessedGpuSliceMetrics(nodeName, gpuID string, processedSlices uint32) error {
+func (r *InstasliceReconciler) IncrementTotalProcessedGpuSliceMetrics(nodeName, gpuID string, processedSlices int32) error {
 	instasliceMetrics.processedSlices.WithLabelValues(
-		nodeName, gpuID).Set(float64(processedSlices))
+		nodeName, gpuID).Add(float64(processedSlices))
 	ctrl.Log.Info(fmt.Sprintf("[IncrementTotalProcessedGpuSliceMetrics] Incremented Total Processed GPU Slices: %d total processed slices, for node -> %v, GPUID -> %v.", processedSlices, nodeName, gpuID)) // trace
 	return nil
 }
 
 // UpdateGpuSliceMetrics updates GPU slice allocation metrics
-func (r *InstasliceReconciler) UpdateGpuSliceMetrics(nodeName, gpuID string, usedSlots, freeSlots uint32) error {
+func (r *InstasliceReconciler) UpdateGpuSliceMetrics(nodeName, gpuID string, usedSlots, freeSlots int32) error {
 	instasliceMetrics.GpuSliceTotal.WithLabelValues(
 		nodeName, gpuID, "used").Set(float64(usedSlots))
 	instasliceMetrics.GpuSliceTotal.WithLabelValues(
@@ -143,7 +116,7 @@ func (r *InstasliceReconciler) UpdateGpuSliceMetrics(nodeName, gpuID string, use
 }
 
 // UpdateGpuSliceMetrics updates GPU slice allocation metrics
-func (r *InstasliceReconciler) UpdateDeployedPodTotalMetrics(nodeName, gpuID, namespace, podname, profile string, size uint32) error {
+func (r *InstasliceReconciler) UpdateDeployedPodTotalMetrics(nodeName, gpuID, namespace, podname, profile string, size int32) error {
 	instasliceMetrics.deployedPodTotal.WithLabelValues(
 		nodeName, gpuID, namespace, podname, profile).Set(float64(size))
 	ctrl.Log.Info(fmt.Sprintf("[UpdateDeployedPodTotalMetrics] Updated Deployed Pod: %d used slice/s, for node -> %v, GPUID -> %v, namespace -> %v, podname -> %v, profile -> %v", size, nodeName, gpuID, namespace, podname, profile)) // trace
@@ -158,8 +131,8 @@ func (r *InstasliceReconciler) UpdatePendingSliceRequests(count uint32) error {
 }
 
 // UpdateCompatibleProfilesMetrics updates metrics based on remaining GPU slices and calculates compatible profiles dynamically
-func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inferencev1alpha1.Instaslice, nodeName string, remainingSlices map[string]uint32) error {
-	totalRemaining := uint32(0)
+func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inferencev1alpha1.Instaslice, nodeName string, remainingSlices map[string]int32) error {
+	totalRemaining := int32(0)
 	for _, remaining := range remainingSlices {
 		totalRemaining += remaining
 	}
@@ -191,7 +164,7 @@ func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inf
 
 		// Check the first size value from the placements for this profile
 		if len(migPlacement.Placements) > 0 {
-			size := uint32(migPlacement.Placements[0].Size)
+			size := int32(migPlacement.Placements[0].Size)
 
 			// Check if the profile is compatible with any remaining slices
 			for gpuID, remaining := range remainingSlices {
