@@ -449,11 +449,11 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{}, nil
 }
 
-// If no allocations exist, update metrics with all slots free
+// updateMetricsAllSlotsFree - If no allocations exist, update metrics with all slots free
 func (r *InstasliceReconciler) updateMetricsAllSlotsFree(ctx context.Context, instasliceList inferencev1alpha1.InstasliceList) {
 	log := logr.FromContext(ctx)
 	for _, instaslice := range instasliceList.Items {
-		remainingSlotsPerGPU := map[string]uint32{}
+		remainingSlotsPerGPU := map[string]int32{}
 		for gpuID := range instaslice.Spec.MigGPUUUID {
 			nodeName := instaslice.Name
 			if instaslice.Spec.Allocations == nil || len(instaslice.Spec.Allocations) == 0 {
@@ -472,7 +472,7 @@ func (r *InstasliceReconciler) updateMetricsAllSlotsFree(ctx context.Context, in
 	}
 }
 
-// updates UpdateGpuSliceMetrics and UpdateCompatibleProfilesMetrics
+// updateMetrics - updates UpdateDeployedPodTotalMetrics, UpdateGpuSliceMetrics and UpdateCompatibleProfilesMetrics
 func (r *InstasliceReconciler) updateMetrics(ctx context.Context, instasliceList inferencev1alpha1.InstasliceList) {
 	log := logr.FromContext(ctx)
 	for _, instaslice := range instasliceList.Items {
@@ -484,12 +484,10 @@ func (r *InstasliceReconciler) updateMetrics(ctx context.Context, instasliceList
 			if instaslice.Spec.Allocations == nil || len(instaslice.Spec.Allocations) == 0 {
 				log.Info("No allocations found, resetting GPU slice metrics", "node", nodeName, "gpuID", gpuID)
 				totalSlots, err := r.getTotalGpuSlotsForGPU(instaslice, gpuID)
-				log.Info("Total slots", totalSlots)
 				if err != nil {
 					log.Error(err, "Failed to determine total GPU slots for GPU without allocations", "gpuID", gpuID)
 					continue
 				}
-				log.Info("Updating GPU slice metrics", "node", nodeName, "gpuID", gpuID, "used", 0, "free", totalSlots)
 				if err := r.UpdateGpuSliceMetrics(nodeName, gpuID, 0, totalSlots); err != nil {
 					log.Error(err, "Failed to update GPU slice metrics for unallocated GPU", "nodeName", nodeName, "gpuID", gpuID)
 				}
@@ -566,7 +564,7 @@ func (r *InstasliceReconciler) getTotalGpuSlotsForGPU(instaslice inferencev1alph
 	return slotsPerGPU, nil
 }
 
-// create the DaemonSet object
+// createInstaSliceDaemonSet - create the DaemonSet object
 func (r *InstasliceReconciler) createInstaSliceDaemonSet(namespace string) *appsv1.DaemonSet {
 	emulatorMode := r.Config.EmulatorModeEnable
 	instasliceDaemonsetImage := r.Config.DaemonsetImage

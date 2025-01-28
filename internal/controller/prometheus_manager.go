@@ -55,13 +55,13 @@ var (
 		// Total number of GPU slices
 		GpuSliceTotal: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "instaslice_gpu_slices_total",
-			Help: "Total number of GPU slices utilized/ free per gpu in a node.",
+			Help: "Total number of GPU slices utilized and free per gpu in a node.",
 		},
 			[]string{"node", "gpu_id", "slot_status"}), // Labels: node, GPU ID, slot status.
-		// Total number of GPU slices
+		// Current deployed pod total
 		deployedPodTotal: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "instaslice_deployed_pod_total",
-			Help: "Pods that are deployed on slices.",
+			Name: "instaslice_current_deployed_pod_total",
+			Help: "Pods that are deployed currently on slices.",
 		},
 			[]string{"node", "gpu_id", "namespace", "podname", "profile"}), // Labels: node, GPU ID, namespace, podname, profile
 		// Pending GPU slice requests
@@ -71,16 +71,16 @@ var (
 		}),
 		// compatible profiles with remaining gpu slices
 		compatibleProfiles: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "instaslice_gpu_compatible_profiles",
+			Name: "instaslice_current_gpu_compatible_profiles",
 			Help: "Profiles compatible with remaining GPU slices.",
 		},
-			[]string{"profile", "node", "remaining_slices"}),
-		// processed slices
+			[]string{"profile", "node", "remaining_slices"}), // Labels: profile, node, remaining slices
+		// total processed slices
 		processedSlices: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "instaslice_total_processed_gpu_slices",
 			Help: "Number of total processed GPU slices.",
 		},
-			[]string{"node", "gpu_id"}),
+			[]string{"node", "gpu_id"}), // Labels: node, GPU ID
 	}
 
 	prometheusRegistry *prometheus.Registry
@@ -107,10 +107,6 @@ func (r *InstasliceReconciler) UpdateGpuSliceMetrics(nodeName, gpuID string, use
 		nodeName, gpuID, "used").Set(float64(usedSlots))
 	instasliceMetrics.GpuSliceTotal.WithLabelValues(
 		nodeName, gpuID, "free").Set(float64(freeSlots))
-	// log check
-	// ctrl.Log.Info("GpuSliceTotal metric updated",
-	// 	"node", nodeName, "gpuID", gpuID, "used", usedSlots,
-	// 	"value", instasliceMetrics.GpuSliceTotal.WithLabelValues(nodeName, gpuID, namespace, podname, profile, "used").Desc())
 	ctrl.Log.Info(fmt.Sprintf("[UpdateGpuSliceMetrics] Updated GPU Slices: %d used slot/s, %d freeslot for node -> %v, GPUID -> %v", usedSlots, freeSlots, nodeName, gpuID)) // trace
 	return nil
 }
@@ -140,6 +136,7 @@ func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inf
 	instasliceMetrics.compatibleProfiles.Reset()
 	ctrl.Log.Info("Reset compatible profiles metric")
 
+	// profile map with fixed indexes for promethues
 	recommendedProfileMap := map[string]int{
 		"1g.5gb":    1,
 		"1g.10gb":   2,
@@ -171,7 +168,7 @@ func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inf
 				if size <= remaining {
 					currentProfiles[profileName] = struct{}{}
 					instasliceMetrics.compatibleProfiles.WithLabelValues(profileName, nodeName, fmt.Sprintf("%d", totalRemaining)).Set(float64(recommendedProfileMap[profileName])) // Indicate compatibility
-					ctrl.Log.Info("Added compatible profile", "profile", profileName, "size", size, "gpuID", gpuID, "remainingSlices", totalRemaining)
+					ctrl.Log.Info("[UpdateCompatibleProfilesMetrics] Added compatible profile", "profile", profileName, "size", size, "gpuID", gpuID, "remainingSlices", totalRemaining)
 					break
 				}
 			}
@@ -228,7 +225,6 @@ func (r *InstasliceReconciler) getPendingGpuRequests(ctx context.Context, client
 			}
 		}
 	}
-
 	return pendingSlices, nil
 }
 
