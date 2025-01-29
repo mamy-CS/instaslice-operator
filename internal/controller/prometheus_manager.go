@@ -137,15 +137,17 @@ func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inf
 	ctrl.Log.Info("Reset compatible profiles metric")
 
 	// profile map with fixed indexes for promethues
-	recommendedProfileMap := map[string]int{
-		"1g.5gb":    1,
-		"1g.10gb":   2,
-		"1g.5gb+me": 3,
-		"2g.10gb":   4,
-		"3g.20gb":   5,
-		"4g.20gb":   6,
-		"7g.40gb":   7,
-	}
+	// example for A100
+	// {
+	// 	"1g.5gb":    1,
+	// 	"2g.10gb":   2,
+	// 	"3g.20gb":   3,
+	// 	"4g.20gb":   4,
+	// 	"7g.40gb":   5,
+	// 	"1g.10gb":   6,
+	// 	"1g.5gb+me": 7,
+	// }
+	recommendedProfileMap := GenerateProfileMapWithIndexes(instasliceObj)
 
 	// Maintain a map to track currently compatible profiles
 	currentProfiles := make(map[string]struct{})
@@ -185,6 +187,23 @@ func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inf
 	}
 
 	return nil
+}
+
+// GenerateProfileMap extracts unique profiles and assigns incremental indexes for promethues
+func GenerateProfileMapWithIndexes(instaslice inferencev1alpha1.Instaslice) map[string]int {
+	profileMap := make(map[string]int)
+	index := 1
+
+	// Iterate through all profiles inside the Migplacement struct
+	for _, placement := range instaslice.Spec.Migplacement {
+		profile := placement.Profile // Extract profile name
+		if _, exists := profileMap[profile]; !exists {
+			profileMap[profile] = index
+			index++
+		}
+	}
+
+	return profileMap
 }
 
 // generateProfileSliceMap generates the full map for both instaslice.redhat.com and nvidia.com
