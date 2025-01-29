@@ -324,10 +324,6 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 							remainingTime := 30*time.Second - elapsed
 							return ctrl.Result{RequeueAfter: remainingTime}, nil
 						}
-						// update DeployedPodTotal Metrics by setting value to 0 as pod allocation is deleted
-						if err = r.UpdateDeployedPodTotalMetrics(allocation.Nodename, allocation.GPUUUID, allocation.Namespace, allocation.PodName, allocation.Profile, 0); err != nil {
-							log.Error(err, "Failed to update deployed pod metrics", "nodeName", allocation.Nodename)
-						}
 					}
 				}
 			}
@@ -811,11 +807,16 @@ func (l *RightToLeftPolicy) SetAllocationDetails(profileName string, newStart, s
 }
 
 func (r *InstasliceReconciler) removeInstasliceAllocation(ctx context.Context, instasliceName string, allocation inferencev1alpha1.AllocationDetails) error {
+	log := logr.FromContext(ctx)
 	if allocation.Allocationstatus == inferencev1alpha1.AllocationStatusDeleted {
 		err := utils.UpdateOrDeleteInstasliceAllocations(ctx, r.Client, instasliceName, nil)
 		if err != nil {
 			return err
 		}
+	}
+	// update DeployedPodTotal Metrics by setting value to 0 as pod allocation is deleted
+	if err := r.UpdateDeployedPodTotalMetrics(allocation.Nodename, allocation.GPUUUID, allocation.Namespace, allocation.PodName, allocation.Profile, 0); err != nil {
+		log.Error(err, "Failed to update deployed pod metrics", "nodeName", allocation.Nodename)
 	}
 	return nil
 }
