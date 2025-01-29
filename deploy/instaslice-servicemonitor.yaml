@@ -16,5 +16,8 @@ spec:
     - port: metrics  # Port name exposed in the Service for kube-rbac-proxy
       interval: 15s
       path: /metrics
-      scheme: http
+      scheme: https
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token  # Prometheus authentication
       honorLabels: true
+      tlsConfig:
+        insecureSkipVerify: true  # Set to false if using a valid CA

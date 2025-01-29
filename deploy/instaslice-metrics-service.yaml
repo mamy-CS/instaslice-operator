@@ -8,8 +8,8 @@ metadata:
 spec:
   ports:
     - name: metrics
-      port: 8080
+      port: 8443
       protocol: TCP
-      targetPort: 8080
+      targetPort: 8443
   selector:
     control-plane: controller-manager  # Use the correct label here
