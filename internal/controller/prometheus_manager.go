@@ -167,7 +167,7 @@ func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inf
 
 			// Check if the profile is compatible with any remaining slices
 			for gpuID, remaining := range remainingSlices {
-				if size <= remaining {
+				if size <= remaining || (size > 7 && size-1 <= remaining) {
 					currentProfiles[profileName] = struct{}{}
 					instasliceMetrics.compatibleProfiles.WithLabelValues(profileName, nodeName, fmt.Sprintf("%d", totalRemaining)).Set(float64(recommendedProfileMap[profileName])) // Indicate compatibility
 					ctrl.Log.Info("[UpdateCompatibleProfilesMetrics] Added compatible profile", "profile", profileName, "size", size, "gpuID", gpuID, "remainingSlices", totalRemaining)

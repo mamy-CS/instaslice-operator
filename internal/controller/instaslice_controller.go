@@ -465,6 +465,10 @@ func (r *InstasliceReconciler) updateMetricsAllSlotsFree(ctx context.Context, in
 				continue
 			}
 		}
+		// update CompatibleProfilesMetrics
+		if err := r.UpdateCompatibleProfilesMetrics(instaslice, instaslice.Name, remainingSlotsPerGPU); err != nil {
+			log.Error(err, "Failed to update Compatiable Profiles Metrics", "nodeName", instaslice.Name)
+		}
 	}
 }
 
@@ -553,7 +557,7 @@ func calculateUsedSlotsForGPU(instaslice inferencev1alpha1.Instaslice, nodeName,
 
 // Retrieves the total GPU slots available for a specific GPU
 func (r *InstasliceReconciler) getTotalGpuSlotsForGPU(instaslice inferencev1alpha1.Instaslice, gpuID string) (int32, error) {
-	const slotsPerGPU = 8
+	const slotsPerGPU = 7
 	if _, exists := instaslice.Spec.MigGPUUUID[gpuID]; !exists {
 		return 0, fmt.Errorf("GPU ID %s not found in Instaslice object", gpuID)
 	}
