@@ -739,12 +739,6 @@ func (r *InstasliceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&inferencev1alpha1.Instaslice{}, handler.EnqueueRequestsFromMapFunc(r.podMapFunc)).
 		Complete(r)
 
-	// Log info before initializing metrics exporter
-	ctrl.Log.Info("[SetupWithManager] Initializing Metrics Exporter.")
-	// r.InitializeMetricsExporter()
-	// Log info after the metrics exporter is initialized
-	ctrl.Log.Info("[SetupWithManager] Metrics Exporter Initialized.")
-
 	return controllerManager
 }
 
