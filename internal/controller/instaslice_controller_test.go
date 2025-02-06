@@ -910,11 +910,6 @@ func TestGPUSort(t *testing.T) {
 	})
 }
 
-func TestMetricsIncrementation(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Metrics Incrementation Suite")
-}
-
 // Mock client that forces an update error
 type FakeFailingClient struct {
 	client.Client

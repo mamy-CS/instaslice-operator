@@ -458,7 +458,7 @@ func (r *InstasliceReconciler) updateMetricsAllSlotsFree(ctx context.Context, in
 		remainingSlotsPerGPU := map[string]int32{}
 		for gpuID := range instaslice.Spec.MigGPUUUID {
 			nodeName := instaslice.Name
-			if instaslice.Spec.Allocations == nil || len(instaslice.Spec.Allocations) == 0 {
+			if len(instaslice.Spec.Allocations) == 0 {
 				totalSlots, err := r.getTotalGpuSlotsForGPU(instaslice, gpuID)
 				if err != nil {
 					log.Error(err, "Failed to determine total GPU slots for GPU without allocations", "gpuID", gpuID)
@@ -473,7 +473,7 @@ func (r *InstasliceReconciler) updateMetricsAllSlotsFree(ctx context.Context, in
 		}
 		// update CompatibleProfilesMetrics
 		if err := r.UpdateCompatibleProfilesMetrics(instaslice, instaslice.Name, remainingSlotsPerGPU); err != nil {
-			log.Error(err, "Failed to update Compatiable Profiles Metrics", "nodeName", instaslice.Name)
+			log.Error(err, "Failed to update Compatible Profiles Metrics", "nodeName", instaslice.Name)
 		}
 	}
 }
@@ -487,7 +487,7 @@ func (r *InstasliceReconciler) updateMetrics(ctx context.Context, instasliceList
 			nodeName := instaslice.Name
 
 			// If no allocations exist, update metrics with all slots free
-			if instaslice.Spec.Allocations == nil || len(instaslice.Spec.Allocations) == 0 {
+			if len(instaslice.Spec.Allocations) == 0 {
 				log.Info("No allocations found, resetting GPU slice metrics", "node", nodeName, "gpuID", gpuID)
 				totalSlots, err := r.getTotalGpuSlotsForGPU(instaslice, gpuID)
 				if err != nil {
@@ -545,7 +545,7 @@ func (r *InstasliceReconciler) updateMetrics(ctx context.Context, instasliceList
 		}
 		// update CompatibleProfilesMetrics
 		if err := r.UpdateCompatibleProfilesMetrics(instaslice, instaslice.Name, remainingSlotsPerGPU); err != nil {
-			log.Error(err, "Failed to update Compatiable Profiles Metrics", "nodeName", instaslice.Name)
+			log.Error(err, "Failed to update Compatible Profiles Metrics", "nodeName", instaslice.Name)
 		}
 	}
 }

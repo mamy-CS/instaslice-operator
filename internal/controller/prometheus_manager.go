@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 
 	inferencev1alpha1 "github.com/openshift/instaslice-operator/api/v1alpha1"
@@ -82,9 +81,6 @@ var (
 		},
 			[]string{"node", "gpu_id"}), // Labels: node, GPU ID
 	}
-
-	prometheusRegistry *prometheus.Registry
-	prometheusHandler  http.Handler
 )
 
 // RegisterMetrics registers all Prometheus metrics
@@ -136,7 +132,7 @@ func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inf
 	instasliceMetrics.compatibleProfiles.Reset()
 	ctrl.Log.Info("Reset compatible profiles metric")
 
-	// profile map with fixed indexes for promethues
+	// profile map with fixed indexes for prometheus
 	// example for A100
 	// {
 	// 	"1g.5gb":    1,
@@ -163,7 +159,7 @@ func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inf
 
 		// Check the first size value from the placements for this profile
 		if len(migPlacement.Placements) > 0 {
-			size := int32(migPlacement.Placements[0].Size)
+			size := migPlacement.Placements[0].Size
 
 			// Check if the profile is compatible with any remaining slices
 			// **Track total fit across all GPUs correctly**
@@ -208,7 +204,7 @@ func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inf
 	return nil
 }
 
-// GenerateProfileMap extracts unique profiles and assigns incremental indexes for promethues
+// GenerateProfileMap extracts unique profiles and assigns incremental indexes for prometheus
 func GenerateProfileMapWithIndexes(instaslice inferencev1alpha1.Instaslice) map[string]int {
 	profileMap := make(map[string]int)
 	index := 1

@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -16,12 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestPrometheusManager(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Prometheus Manager Suite")
-}
-
-var _ = Describe("Prometheus Manager", func() {
+var _ = Describe("Instaslice Controller", func() {
 	var (
 		ctx        context.Context
 		fakeClient client.Client
