@@ -412,8 +412,14 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				}
 				// allocation was successful
 				// Update total processed GPU slices metrics
-				if err := r.IncrementTotalProcessedGpuSliceMetrics(successfulAllocation.Nodename, successfulAllocation.GPUUUID, successfulAllocation.Size); err != nil {
-					log.Error(err, "Failed to update total processed GPU slices metric", "nodeName", successfulAllocation.Nodename, "gpuID", successfulAllocation.GPUUUID)
+				if !successfulAllocation.IsMetricProcessed {
+					if err := r.IncrementTotalProcessedGpuSliceMetrics(successfulAllocation.Nodename, successfulAllocation.GPUUUID, successfulAllocation.Size); err != nil {
+						log.Error(err, "Failed to update total processed GPU slices metric", "nodeName", successfulAllocation.Nodename, "gpuID", successfulAllocation.GPUUUID)
+					}
+					successfulAllocation.IsMetricProcessed = true // mark metric as processed
+					if err := utils.UpdateOrDeleteInstasliceAllocations(ctx, r.Client, instasliceListItemSuccess.Name, successfulAllocation); err != nil {
+						log.Error(err, "Failed to mark metric as processed", "allocation", successfulAllocation)
+					}
 				}
 				return ctrl.Result{}, nil
 			}

@@ -95,6 +95,8 @@ type AllocationDetails struct {
 	// memory represents amount of memory requested by user workload
 	// +required
 	Memory int64 `json:"memory"`
+	// to prevent double metric incrementation
+	IsMetricProcessed bool `json:"isMetricProcessed,omitempty"`
 }
 
 // InstasliceSpec defines the desired state of Instaslice
