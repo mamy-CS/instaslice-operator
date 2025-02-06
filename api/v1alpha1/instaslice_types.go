@@ -95,8 +95,6 @@ type AllocationDetails struct {
 	// memory represents amount of memory requested by user workload
 	// +required
 	Memory int64 `json:"memory"`
-	// to prevent double metric incrementation
-	IsMetricProcessed bool `json:"isMetricProcessed,omitempty"`
 }
 
 // InstasliceSpec defines the desired state of Instaslice
@@ -122,7 +120,9 @@ type InstasliceSpec struct {
 type InstasliceStatus struct {
 	// processed represents state of the instaslice object after daemonset creation
 	// +required
-	Processed bool `json:"processed"`
+	Processed          bool  `json:"processed"`
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	IsMetricProcessed  bool  `json:"isMetricProcessed,omitempty"`
 }
 
 //+kubebuilder:object:root=true

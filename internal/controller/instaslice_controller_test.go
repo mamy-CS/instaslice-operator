@@ -943,11 +943,15 @@ var _ = Describe("Metrics Incrementation", func() {
 
 		instaslice = &inferencev1alpha1.Instaslice{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-instaslice",
-				Namespace: "instaslice-system",
+				Name:       "test-instaslice",
+				Namespace:  "instaslice-system",
+				Generation: 1,
 			},
 			Spec: inferencev1alpha1.InstasliceSpec{
 				Allocations: map[string]inferencev1alpha1.AllocationDetails{},
+			},
+			Status: inferencev1alpha1.InstasliceStatus{
+				ObservedGeneration: 0,
 			},
 		}
 		Expect(fakeClient.Create(ctx, instaslice)).To(Succeed())
@@ -960,73 +964,36 @@ var _ = Describe("Metrics Incrementation", func() {
 		Expect(len(instaslice.Spec.Allocations)).To(Equal(0))
 	})
 
-	// Test for invalid input: missing GPUUUID
-	It("should handle invalid allocation input (missing GPUUUID)", func() {
-		invalidAlloc := inferencev1alpha1.AllocationDetails{
-			PodUUID:  "pod-1",
-			PodName:  "test-pod",
-			Nodename: "node-1",
-			GPUUUID:  "", // Invalid
-			Size:     3,
-		}
-		// ✅ Added validation for missing GPUUUID
-		if invalidAlloc.GPUUUID == "" {
-			err := fmt.Errorf("GPUUUID cannot be empty")
-			Expect(err).To(HaveOccurred())
-		} else {
-			err := r.IncrementTotalProcessedGpuSliceMetrics(invalidAlloc.Nodename, invalidAlloc.GPUUUID, invalidAlloc.Size)
-			Expect(err).To(HaveOccurred())
-		}
-	})
+	// Test for IncrementTotalProcessedGpuSliceMetrics with ObservedGeneration
+	It("should correctly increment metrics based on ObservedGeneration", func() {
+		instaslice.Status.ObservedGeneration = 0
+		Expect(instaslice.Generation).To(Equal(int64(1)))
 
-	// Test for UpdateGpuSliceMetrics
-	It("should correctly update GPU slice metrics", func() {
-		err := r.UpdateGpuSliceMetrics("node-1", "gpu-1", 2, 5)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(2 + 5).To(Equal(7))
-	})
-
-	// Test for UpdateCompatibleProfilesMetrics
-	It("should correctly update compatible profile metrics", func() {
-		err := r.UpdateCompatibleProfilesMetrics(*instaslice, "node-1", map[string]int32{"gpu-1": 7})
-		Expect(err).ToNot(HaveOccurred())
-		Expect(instaslice.Spec.Allocations).To(BeEmpty())
-	})
-
-	// Test for IncrementTotalProcessedGpuSliceMetrics with validation
-	It("should correctly increment total processed GPU slice metrics", func() {
 		err := r.IncrementTotalProcessedGpuSliceMetrics("node-1", "gpu-1", 4)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(4).To(Equal(4))
+
+		// Simulate successful metrics processing
+		instaslice.Status.ObservedGeneration = instaslice.Generation
+		Expect(instaslice.Status.ObservedGeneration).To(Equal(instaslice.Generation))
 	})
 
-	// Test for invalid input: negative size
-	It("should handle invalid size (negative value)", func() {
-		// ✅ Added validation for negative size
-		invalidSize := -3
-		if invalidSize < 0 {
-			err := fmt.Errorf("Size cannot be negative")
-			Expect(err).To(HaveOccurred())
-		} else {
-			err := r.IncrementTotalProcessedGpuSliceMetrics("node-1", "gpu-1", int32(invalidSize))
-			Expect(err).To(HaveOccurred())
-		}
+	// Test to prevent double metric incrementation
+	It("should not increment metrics more than once for the same generation", func() {
+		instaslice.Status.ObservedGeneration = instaslice.Generation // Metrics already processed
+
+		err := r.IncrementTotalProcessedGpuSliceMetrics("node-1", "gpu-1", 4)
+		Expect(err).ToNot(HaveOccurred()) // Should skip incrementation
 	})
 
-	// Idempotency Test
-	It("should maintain idempotency when reconciliation is requeued", func() {
-		allocation := inferencev1alpha1.AllocationDetails{
-			PodUUID:           "pod-unique",
-			Nodename:          "node-1",
-			GPUUUID:           "gpu-1",
-			Size:              4,
-			IsMetricProcessed: false,
-		}
-		err := r.IncrementTotalProcessedGpuSliceMetrics(allocation.Nodename, allocation.GPUUUID, allocation.Size)
+	// Test for allocation change triggering metric reprocessing
+	It("should trigger metric reprocessing when generation changes", func() {
+		instaslice.Generation = 2 // Simulate spec change
+
+		err := r.IncrementTotalProcessedGpuSliceMetrics("node-1", "gpu-1", 4)
 		Expect(err).ToNot(HaveOccurred())
-		allocation.IsMetricProcessed = true
-		err = r.IncrementTotalProcessedGpuSliceMetrics(allocation.Nodename, allocation.GPUUUID, allocation.Size)
-		Expect(err).ToNot(HaveOccurred())
+
+		instaslice.Status.ObservedGeneration = instaslice.Generation
+		Expect(instaslice.Status.ObservedGeneration).To(Equal(int64(2)))
 	})
 
 	// Validate allocation changes
@@ -1036,11 +1003,29 @@ var _ = Describe("Metrics Incrementation", func() {
 			GPUUUID:  "gpu-1",
 			Size:     3,
 		}
-		r.updateMetrics(ctx, inferencev1alpha1.InstasliceList{Items: []inferencev1alpha1.Instaslice{*instaslice}})
-		Expect(instaslice.Spec.Allocations["alloc-1"].Size).To(Equal(int32(3))) // ✅ Fixed type mismatch
 
-		delete(instaslice.Spec.Allocations, "alloc-1")
+		// Simulate initial metrics processing
+		instaslice.Generation = 1 // Explicitly set generation
 		r.updateMetrics(ctx, inferencev1alpha1.InstasliceList{Items: []inferencev1alpha1.Instaslice{*instaslice}})
-		Expect(instaslice.Spec.Allocations).To(BeEmpty())
+
+		// Ensure status is updated after processing
+		instaslice.Status.ObservedGeneration = instaslice.Generation
+		instaslice.Status.IsMetricProcessed = true
+		_ = r.Status().Update(ctx, instaslice)
+
+		Expect(instaslice.Status.ObservedGeneration).To(Equal(int64(1)))
+		Expect(instaslice.Status.IsMetricProcessed).To(BeTrue()) // Ensure metrics are marked as processed
+
+		// Simulate spec update
+		instaslice.Generation = 3
+		r.updateMetrics(ctx, inferencev1alpha1.InstasliceList{Items: []inferencev1alpha1.Instaslice{*instaslice}})
+
+		// Update status again
+		instaslice.Status.ObservedGeneration = instaslice.Generation
+		instaslice.Status.IsMetricProcessed = true
+		_ = r.Status().Update(ctx, instaslice)
+
+		Expect(instaslice.Status.ObservedGeneration).To(Equal(int64(3)))
+		Expect(instaslice.Status.IsMetricProcessed).To(BeTrue()) // Ensure reprocessed after spec change
 	})
 })

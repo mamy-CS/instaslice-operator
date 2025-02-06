@@ -406,25 +406,32 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 			}
 			if podHasNodeAllocation {
+				// Update or Delete Instaslice Allocations
 				err := utils.UpdateOrDeleteInstasliceAllocations(ctx, r.Client, instasliceListItemSuccess.Name, successfulAllocation)
 				if err != nil {
-					return ctrl.Result{Requeue: true}, nil
+					return ctrl.Result{Requeue: true}, err
 				}
-				// allocation was successful
-				// Update total processed GPU slices metrics
-				if !successfulAllocation.IsMetricProcessed {
+
+				// Check if metrics need processing based on ObservedGeneration
+				if instasliceListItemSuccess.Status.ObservedGeneration < instasliceListItemSuccess.Generation {
 					if err := r.IncrementTotalProcessedGpuSliceMetrics(successfulAllocation.Nodename, successfulAllocation.GPUUUID, successfulAllocation.Size); err != nil {
 						log.Error(err, "Failed to update total processed GPU slices metric", "nodeName", successfulAllocation.Nodename, "gpuID", successfulAllocation.GPUUUID)
-						return ctrl.Result{Requeue: true}, nil
+						return ctrl.Result{Requeue: true}, err
 					}
-					successfulAllocation.IsMetricProcessed = true // mark metric as processed
-					if err := utils.UpdateOrDeleteInstasliceAllocations(ctx, r.Client, instasliceListItemSuccess.Name, successfulAllocation); err != nil {
-						log.Error(err, "Failed to mark metric as processed", "allocation", successfulAllocation)
-						return ctrl.Result{Requeue: true}, nil
+
+					// Mark as processed by updating ObservedGeneration
+					instasliceListItemSuccess.Status.ObservedGeneration = instasliceListItemSuccess.Generation
+					instasliceListItemSuccess.Status.IsMetricProcessed = true
+
+					if err := r.Status().Update(ctx, &instasliceListItemSuccess); err != nil {
+						log.Error(err, "Failed to update Instaslice status after processing metrics", "allocation", successfulAllocation)
+						return ctrl.Result{Requeue: true}, err
 					}
 				}
+
 				return ctrl.Result{}, nil
 			}
+
 		}
 
 		// if the cluster does not have suitable node, requeue request
