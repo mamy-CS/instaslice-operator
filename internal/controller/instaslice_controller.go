@@ -415,10 +415,12 @@ func (r *InstasliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				if !successfulAllocation.IsMetricProcessed {
 					if err := r.IncrementTotalProcessedGpuSliceMetrics(successfulAllocation.Nodename, successfulAllocation.GPUUUID, successfulAllocation.Size); err != nil {
 						log.Error(err, "Failed to update total processed GPU slices metric", "nodeName", successfulAllocation.Nodename, "gpuID", successfulAllocation.GPUUUID)
+						return ctrl.Result{Requeue: true}, nil
 					}
 					successfulAllocation.IsMetricProcessed = true // mark metric as processed
 					if err := utils.UpdateOrDeleteInstasliceAllocations(ctx, r.Client, instasliceListItemSuccess.Name, successfulAllocation); err != nil {
 						log.Error(err, "Failed to mark metric as processed", "allocation", successfulAllocation)
+						return ctrl.Result{Requeue: true}, nil
 					}
 				}
 				return ctrl.Result{}, nil
@@ -466,6 +468,7 @@ func (r *InstasliceReconciler) updateMetricsAllSlotsFree(ctx context.Context, in
 				}
 				if err := r.UpdateGpuSliceMetrics(nodeName, gpuID, 0, totalSlots); err != nil {
 					log.Error(err, "Failed to update GPU slice metrics for unallocated GPU", "nodeName", nodeName, "gpuID", gpuID)
+					return
 				}
 				remainingSlotsPerGPU[gpuID] = totalSlots
 				continue
@@ -474,6 +477,7 @@ func (r *InstasliceReconciler) updateMetricsAllSlotsFree(ctx context.Context, in
 		// update CompatibleProfilesMetrics
 		if err := r.UpdateCompatibleProfilesMetrics(instaslice, instaslice.Name, remainingSlotsPerGPU); err != nil {
 			log.Error(err, "Failed to update Compatible Profiles Metrics", "nodeName", instaslice.Name)
+			return
 		}
 	}
 }
@@ -539,6 +543,7 @@ func (r *InstasliceReconciler) updateMetrics(ctx context.Context, instasliceList
 				}
 				if err := r.UpdateGpuSliceMetrics(nodeName, gpuID, 0, totalSlots); err != nil {
 					log.Error(err, "Failed to update GPU slice metrics", "nodeName", nodeName, "gpuID", gpuID)
+					return
 				}
 				remainingSlotsPerGPU[gpuID] = totalSlots
 			}
