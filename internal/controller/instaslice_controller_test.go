@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -908,3 +909,148 @@ func TestGPUSort(t *testing.T) {
 		})
 	})
 }
+
+func TestMetricsIncrementation(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Metrics Incrementation Suite")
+}
+
+// Mock client that forces an update error
+type FakeFailingClient struct {
+	client.Client
+	FailOnUpdate bool
+}
+
+func (f *FakeFailingClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	if f.FailOnUpdate {
+		return fmt.Errorf("simulated update failure")
+	}
+	return f.Client.Update(ctx, obj, opts...)
+}
+
+var _ = Describe("Metrics Incrementation", func() {
+	var (
+		ctx        context.Context
+		fakeClient client.Client
+		r          *InstasliceReconciler
+		instaslice *inferencev1alpha1.Instaslice
+	)
+
+	BeforeEach(func() {
+		ctx = context.TODO()
+		scheme := runtime.NewScheme()
+		Expect(inferencev1alpha1.AddToScheme(scheme)).To(Succeed())
+		fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+
+		r = &InstasliceReconciler{
+			Client: fakeClient,
+		}
+
+		instaslice = &inferencev1alpha1.Instaslice{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-instaslice",
+				Namespace: "instaslice-system",
+			},
+			Spec: inferencev1alpha1.InstasliceSpec{
+				Allocations: map[string]inferencev1alpha1.AllocationDetails{},
+			},
+		}
+		Expect(fakeClient.Create(ctx, instaslice)).To(Succeed())
+	})
+
+	// Test for updateMetricsAllSlotsFree
+	It("should update metrics with all slots free when no allocations exist", func() {
+		instaslice.Spec.Allocations = nil
+		r.updateMetricsAllSlotsFree(ctx, inferencev1alpha1.InstasliceList{Items: []inferencev1alpha1.Instaslice{*instaslice}})
+	})
+
+	// Test for updateMetrics
+	It("should update GPU slice and compatible profile metrics correctly", func() {
+		instaslice.Spec.Allocations["alloc-1"] = inferencev1alpha1.AllocationDetails{
+			PodUUID:  "pod-5",
+			PodName:  "allocated-pod",
+			Nodename: "node-5",
+			GPUUUID:  "gpu-5",
+			Size:     3,
+		}
+
+		r.updateMetrics(ctx, inferencev1alpha1.InstasliceList{Items: []inferencev1alpha1.Instaslice{*instaslice}})
+	})
+
+	// Test for UpdateGpuSliceMetrics
+	It("should correctly update GPU slice metrics", func() {
+		err := r.UpdateGpuSliceMetrics("node-1", "gpu-1", 2, 5)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	// Test for UpdateCompatibleProfilesMetrics
+	It("should correctly update compatible profile metrics", func() {
+		err := r.UpdateCompatibleProfilesMetrics(*instaslice, "node-1", map[string]int32{"gpu-1": 7})
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	// Test for UpdateDeployedPodTotalMetrics
+	It("should correctly update deployed pod total metrics", func() {
+		err := r.UpdateDeployedPodTotalMetrics("node-1", "gpu-1", "namespace-1", "pod-1", "profile-1", 4)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	// Test for IncrementTotalProcessedGpuSliceMetrics
+	It("should correctly increment total processed GPU slice metrics", func() {
+		err := r.IncrementTotalProcessedGpuSliceMetrics("node-1", "gpu-1", 4)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("should not increment metrics more than once for the same allocation", func() {
+		err := r.IncrementTotalProcessedGpuSliceMetrics("node-1", "gpu-1", 4)
+		Expect(err).ToNot(HaveOccurred())
+
+		err = r.IncrementTotalProcessedGpuSliceMetrics("node-1", "gpu-1", 4)
+		Expect(err).ToNot(HaveOccurred()) // Should not increment again
+	})
+
+	It("should maintain idempotency when reconciliation is requeued", func() {
+		allocation := inferencev1alpha1.AllocationDetails{
+			PodUUID:           "pod-unique",
+			Nodename:          "node-1",
+			GPUUUID:           "gpu-1",
+			Size:              4,
+			IsMetricProcessed: false,
+		}
+
+		err := r.IncrementTotalProcessedGpuSliceMetrics(allocation.Nodename, allocation.GPUUUID, allocation.Size)
+		Expect(err).ToNot(HaveOccurred())
+
+		allocation.IsMetricProcessed = true
+		err = r.IncrementTotalProcessedGpuSliceMetrics(allocation.Nodename, allocation.GPUUUID, allocation.Size)
+		Expect(err).ToNot(HaveOccurred()) // Should NOT increment again
+	})
+
+	It("should report all slots as free when there are zero allocations", func() {
+		instaslice.Spec.Allocations = nil
+		r.updateMetricsAllSlotsFree(ctx, inferencev1alpha1.InstasliceList{Items: []inferencev1alpha1.Instaslice{*instaslice}})
+	})
+
+	It("should report zero free slots when all GPU slots are fully allocated", func() {
+		instaslice.Spec.Allocations["alloc-1"] = inferencev1alpha1.AllocationDetails{
+			Nodename: "node-1",
+			GPUUUID:  "gpu-1",
+			Size:     7,
+		}
+
+		r.updateMetrics(ctx, inferencev1alpha1.InstasliceList{Items: []inferencev1alpha1.Instaslice{*instaslice}})
+	})
+
+	It("should correctly reflect allocation changes in metrics", func() {
+		instaslice.Spec.Allocations["alloc-1"] = inferencev1alpha1.AllocationDetails{
+			Nodename: "node-1",
+			GPUUUID:  "gpu-1",
+			Size:     3,
+		}
+
+		r.updateMetrics(ctx, inferencev1alpha1.InstasliceList{Items: []inferencev1alpha1.Instaslice{*instaslice}})
+
+		delete(instaslice.Spec.Allocations, "alloc-1")
+		r.updateMetrics(ctx, inferencev1alpha1.InstasliceList{Items: []inferencev1alpha1.Instaslice{*instaslice}})
+	})
+})
