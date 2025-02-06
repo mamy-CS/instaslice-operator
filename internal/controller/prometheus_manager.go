@@ -74,7 +74,7 @@ var (
 			Name: "instaslice_current_gpu_compatible_profiles",
 			Help: "Profiles compatible with remaining GPU slices.",
 		},
-			[]string{"profile", "node", "remaining_slices"}), // Labels: profile, node, remaining slices
+			[]string{"profile", "node", "count"}), // Labels: profile, node, count
 		// total processed slices
 		processedSlices: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "instaslice_total_processed_gpu_slices",
@@ -166,13 +166,32 @@ func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inf
 			size := int32(migPlacement.Placements[0].Size)
 
 			// Check if the profile is compatible with any remaining slices
-			for gpuID, remaining := range remainingSlices {
-				if size <= remaining || (size > 7 && size-1 <= remaining) {
-					currentProfiles[profileName] = struct{}{}
-					instasliceMetrics.compatibleProfiles.WithLabelValues(profileName, nodeName, fmt.Sprintf("%d", totalRemaining)).Set(float64(recommendedProfileMap[profileName])) // Indicate compatibility
-					ctrl.Log.Info("[UpdateCompatibleProfilesMetrics] Added compatible profile", "profile", profileName, "size", size, "gpuID", gpuID, "remainingSlices", totalRemaining)
-					break
+			// **Track total fit across all GPUs correctly**
+			totalFit := int32(0)
+
+			for _, remaining := range remainingSlices {
+				gpuFit := int32(0)
+				usedSlices := int32(0)
+
+				// **Ensure correct profile placement per GPU**
+				for usedSlices+size <= remaining || (usedSlices+size-1 == remaining && (profileName == "3g.20gb" || profileName == "1g.10gb")) {
+					gpuFit++
+					usedSlices += size
 				}
+
+				// **Fix `7g.40gb` handling:** Ensure it fits when exactly 7 slices are available.
+				if profileName == "7g.40gb" && remaining == 7 {
+					gpuFit = 1
+				}
+
+				// **Accumulate per-GPU fit counts**
+				totalFit += gpuFit
+			}
+
+			if totalFit > 0 {
+				currentProfiles[profileName] = struct{}{}
+				instasliceMetrics.compatibleProfiles.WithLabelValues(profileName, nodeName, fmt.Sprintf("%d", totalFit)).Set(float64(recommendedProfileMap[profileName]))
+				ctrl.Log.Info("[UpdateCompatibleProfilesMetrics] Added compatible profile", "profile", profileName, "size", size, "totalFit", totalFit)
 			}
 		}
 	}
