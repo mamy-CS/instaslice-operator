@@ -1016,6 +1016,11 @@ var _ = Describe("Metrics Incrementation", func() {
 		Expect(instaslice.Status.ObservedGeneration).To(Equal(int64(1)))
 		Expect(instaslice.Status.IsMetricProcessed).To(BeTrue()) // Ensure metrics are marked as processed
 
+		// Check cleanup of incompatible profiles
+		r.UpdateCompatibleProfilesMetrics(*instaslice, "node-1", map[string]int32{"gpu-1": 0})
+		Expect(instasliceMetrics.compatibleProfiles.WithLabelValues("1g.5gb", "node-1", "0")).NotTo(BeNil())
+		Expect(instasliceMetrics.compatibleProfiles.WithLabelValues("2g.10gb", "node-1", "0")).NotTo(BeNil())
+
 		// Simulate spec update
 		instaslice.Generation = 3
 		r.updateMetrics(ctx, inferencev1alpha1.InstasliceList{Items: []inferencev1alpha1.Instaslice{*instaslice}})

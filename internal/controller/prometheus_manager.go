@@ -124,14 +124,6 @@ func (r *InstasliceReconciler) UpdatePendingSliceRequests(count uint32) error {
 
 // UpdateCompatibleProfilesMetrics updates metrics based on remaining GPU slices and calculates compatible profiles dynamically
 func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inferencev1alpha1.Instaslice, nodeName string, remainingSlices map[string]int32) error {
-	totalRemaining := int32(0)
-	for _, remaining := range remainingSlices {
-		totalRemaining += remaining
-	}
-	// Reset compatible profiles
-	instasliceMetrics.compatibleProfiles.Reset()
-	ctrl.Log.Info("Reset compatible profiles metric")
-
 	// profile map with fixed indexes for prometheus
 	// example for A100
 	// {
@@ -178,6 +170,8 @@ func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inf
 				// **Fix `7g.40gb` handling:** Ensure it fits when exactly 7 slices are available.
 				if profileName == "7g.40gb" && remaining == 7 {
 					gpuFit = 1
+				} else if profileName == "7g.40gb" && remaining > 7 {
+					gpuFit = 0
 				}
 
 				// **Accumulate per-GPU fit counts**
@@ -196,7 +190,7 @@ func (r *InstasliceReconciler) UpdateCompatibleProfilesMetrics(instasliceObj inf
 	for profileName := range baseProfileSliceMap { // baseProfileSliceMap contains all possible profiles
 		if _, exists := currentProfiles[profileName]; !exists {
 			// Profile is no longer compatible; set its value to 0
-			instasliceMetrics.compatibleProfiles.WithLabelValues(profileName, nodeName, fmt.Sprintf("%d", totalRemaining)).Set(0)
+			instasliceMetrics.compatibleProfiles.WithLabelValues(profileName, nodeName, fmt.Sprintf("%d", 0)).Set(0)
 			ctrl.Log.Info("Removed incompatible profile", "profile", profileName, "nodeName", nodeName)
 		}
 	}

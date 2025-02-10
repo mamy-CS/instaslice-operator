@@ -63,9 +63,6 @@ spec:
                     gpuUUID:
                       description: gpuUUID represents gpu uuid of selected gpu
                       type: string
-                    isMetricProcessed:
-                      description: to prevent double metric incrementation
-                      type: boolean
                     memory:
                       description: memory represents amount of memory requested by
                         user workload
@@ -189,6 +186,11 @@ spec:
               It provides runtime information about the resource, such as whether
               allocations have been processed.
             properties:
+              isMetricProcessed:
+                type: boolean
+              observedGeneration:
+                format: int64
+                type: integer
               processed:
                 description: processed represents state of the instaslice object after
                   daemonset creation

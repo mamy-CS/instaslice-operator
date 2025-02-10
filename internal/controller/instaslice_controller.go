@@ -567,7 +567,11 @@ func calculateUsedSlotsForGPU(instaslice inferencev1alpha1.Instaslice, nodeName,
 	usedSlots := int32(0)
 	for _, allocation := range instaslice.Spec.Allocations {
 		if allocation.Nodename == nodeName && allocation.GPUUUID == gpuID {
-			usedSlots += allocation.Size
+			if allocation.Size == 8 { // handle for 7g.40gb profile
+				usedSlots += 7
+			} else {
+				usedSlots += allocation.Size
+			}
 		}
 	}
 	return usedSlots
