@@ -26,16 +26,22 @@ import (
 func (r *InstasliceReconciler) updateMetrics(ctx context.Context, instasliceList inferencev1alpha1.InstasliceList) error {
 	log := logr.FromContext(ctx)
 	for _, instaslice := range instasliceList.Items {
-		sortedGPUs := sortGPUs(&instaslice)
+		// Fetch latest Instaslice state before updating metrics
+		updatedInstaslice, err := r.getInstasliceObject(ctx, instaslice.Name, instaslice.Namespace)
+		if err != nil {
+			log.Error(err, "Failed to get latest Instaslice object", "instaslice", instaslice.Name)
+			return err
+		}
+		sortedGPUs := sortGPUs(updatedInstaslice)
 		for _, gpuID := range sortedGPUs {
-			for podUuid, allocation := range instaslice.Status.PodAllocationResults {
+			for podUuid, allocation := range updatedInstaslice.Status.PodAllocationResults {
 				if allocation.GPUUUID == gpuID {
-					allocRequest := instaslice.Spec.PodAllocationRequests[podUuid]
+					allocRequest := updatedInstaslice.Spec.PodAllocationRequests[podUuid]
 					nodeName := allocation.Nodename
 					namespace := allocRequest.PodRef.Namespace
 					podname := allocRequest.PodRef.Name
 					profile := allocRequest.Profile
-					freeSlots, usedSlots := getFreeAndUsedSlicesCount(&instaslice, gpuID)
+					freeSlots, usedSlots := getFreeAndUsedSlicesCount(updatedInstaslice, gpuID)
 					// update GpuSliceMetrics
 					if err := r.UpdateGpuSliceMetrics(string(nodeName), gpuID, usedSlots, freeSlots); err != nil {
 						return fmt.Errorf("failed to update GPU slice metrics (nodeName: %s, gpuID: %s): %w", nodeName, gpuID, err)
@@ -48,8 +54,8 @@ func (r *InstasliceReconciler) updateMetrics(ctx context.Context, instasliceList
 			}
 		}
 		// update CompatibleProfilesMetrics
-		if err := r.UpdateCompatibleProfilesMetrics(instaslice, instaslice.Name); err != nil {
-			log.Error(err, "Failed to update Compatible Profiles Metrics", "nodeName", instaslice.Name)
+		if err := r.UpdateCompatibleProfilesMetrics(*updatedInstaslice, updatedInstaslice.Name); err != nil {
+			log.Error(err, "Failed to update Compatible Profiles Metrics", "nodeName", updatedInstaslice.Name)
 			return err
 		}
 	}
@@ -60,11 +66,17 @@ func (r *InstasliceReconciler) updateMetrics(ctx context.Context, instasliceList
 func (r *InstasliceReconciler) updateMetricsAllSlotsFree(ctx context.Context, instasliceList inferencev1alpha1.InstasliceList) error {
 	log := logr.FromContext(ctx)
 	for _, instaslice := range instasliceList.Items {
-		sortedGPUs := sortGPUs(&instaslice)
+		// Fetch latest Instaslice state before updating metrics
+		updatedInstaslice, err := r.getInstasliceObject(ctx, instaslice.Name, instaslice.Namespace)
+		if err != nil {
+			log.Error(err, "Failed to get latest Instaslice object", "instaslice", instaslice.Name)
+			return err
+		}
+		sortedGPUs := sortGPUs(updatedInstaslice)
 		for _, gpuID := range sortedGPUs {
-			nodeName := instaslice.Name
-			if len(instaslice.Spec.PodAllocationRequests) == 0 {
-				err := r.updateGpuSliceMetricsForUnallocatedGPU(instaslice, nodeName, gpuID)
+			nodeName := updatedInstaslice.Name
+			if len(updatedInstaslice.Spec.PodAllocationRequests) == 0 {
+				err := r.updateGpuSliceMetricsForUnallocatedGPU(*updatedInstaslice, nodeName, gpuID)
 				if err != nil {
 					log.Error(err, "Failed to update GPU slice metrics for unallocated GPU", "nodeName", nodeName, "gpuID", gpuID)
 					return err
@@ -73,8 +85,8 @@ func (r *InstasliceReconciler) updateMetricsAllSlotsFree(ctx context.Context, in
 			}
 		}
 		// update CompatibleProfilesMetrics
-		if err := r.UpdateCompatibleProfilesMetrics(instaslice, instaslice.Name); err != nil {
-			log.Error(err, "Failed to update Compatible Profiles Metrics", "nodeName", instaslice.Name)
+		if err := r.UpdateCompatibleProfilesMetrics(*updatedInstaslice, updatedInstaslice.Name); err != nil {
+			log.Error(err, "Failed to update Compatible Profiles Metrics", "nodeName", updatedInstaslice.Name)
 			return err
 		}
 	}
